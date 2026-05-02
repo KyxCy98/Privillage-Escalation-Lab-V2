@@ -15,7 +15,7 @@ docker ps
 
 ### Step 1: Clone/Download Lab
 ```bash
-cd c:\Users\Hype GLK\Downloads\lab
+cd c:\Users\Downloads\lab
 # Or your desired location
 ```
 
