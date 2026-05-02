@@ -12,7 +12,7 @@ Anda telah berhasil download **Advanced Privilege Escalation Lab** - lab pelatih
 
 Please rebuild with the latest fix:
 ```bash
-cd c:\Users\Hype GLK\Downloads\lab
+cd c:\Users\pc\Downloads\lab
 ./build.sh clean
 ./build.sh build-and-run
 sleep 60
