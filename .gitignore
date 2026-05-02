@@ -1,0 +1,76 @@
+# Docker artifacts
+.docker/
+docker-sync.yml
+
+# Local volumes
+volumes/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Secrets (DO NOT COMMIT)
+.env
+.env.local
+secrets/
+*.pem
+*.key
+*.crt
+credentials.txt
+api_keys.txt
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Test artifacts
+test-results/
+coverage/
+.coverage
+
+# Container images
+*.tar
+*.tar.gz
+
+# Container runtime files
+.container-id
+container.pid
+
+# Backups
+*.backup
+*.backup.*
+backups/

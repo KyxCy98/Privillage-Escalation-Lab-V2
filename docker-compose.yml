@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  privesc-lab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: privesc-lab
+    ports:
+      - "2222:22"
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+    volumes:
+      - privesc-lab-data:/home
+      - privesc-lab-opt:/opt
+    restart: unless-stopped
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor=unconfined
+      - seccomp=unconfined
+    healthcheck:
+      test: ["CMD", "service", "ssh", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  privesc-lab-data:
+  privesc-lab-opt:
+
+networks:
+  default:
+    name: privesc-network
