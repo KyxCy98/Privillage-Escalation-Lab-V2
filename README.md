@@ -639,4 +639,3 @@ Untuk pertanyaan atau feedback tentang lab:
 **Lab Version:** 1.0  
 **Last Updated:** 2024  
 **Difficulty:** HARD (Black Box)
-# Privillage-Escalation-Lab-V2

@@ -171,6 +171,19 @@ case $ACTION in
         ssh -p 2222 -o StrictHostKeyChecking=no player1@localhost
         ;;
     
+    validate)
+        echo -e "${YELLOW}[*] Running validation tests...${NC}"
+        if [ -f "../validate-lab.sh" ]; then
+            bash ../validate-lab.sh
+        elif [ -f "./validate-lab.sh" ]; then
+            bash ./validate-lab.sh
+        else
+            echo -e "${RED}[!] validate-lab.sh not found${NC}"
+            echo -e "${YELLOW}[*] Please ensure validate-lab.sh exists in the parent directory or current directory${NC}"
+            exit 1
+        fi
+        ;;
+    
     docker-compose-up)
         echo -e "${YELLOW}[*] Starting with docker-compose...${NC}"
         docker-compose up -d
@@ -198,6 +211,7 @@ Commands:
   logs                   Show container logs (follow mode)
   shell                  Open shell in container (docker exec)
   ssh                    SSH into container as player1
+  validate               Run comprehensive lab validation tests
   docker-compose-up      Start with docker-compose
   docker-compose-down    Stop docker-compose
   help                   Show this help message
@@ -205,12 +219,14 @@ Commands:
 Quick Start:
   ./build.sh                    # Build and run
   ssh -p 2222 player1@localhost # Connect (password: password123)
+  ./build.sh validate           # Test all users and exploits
 
 Examples:
   ./build.sh build              # Just build image
   ./build.sh stop               # Stop running lab
   ./build.sh logs               # View container logs
   ./build.sh clean              # Clean everything
+  ./build.sh validate           # Run validation tests
 
 EOF
         ;;

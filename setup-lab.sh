@@ -15,24 +15,29 @@ create_user() {
     local password=$2
     local groups=$3
     
-    echo "[*] Processing user: $username"
+    echo "[*] Creating user: $username"
     
-    # Jika user belum ada, buat. Jika sudah ada, abaikan errornya.
-    useradd -m -s /bin/bash "$username" 2>/dev/null || true
-    
-    # PAKSA shell ke /bin/bash (Ini kunci buat benerin user backup!)
-    usermod -s /bin/bash "$username"
-    
-    # Tambah grup kalau ada
-    if [ ! -z "$groups" ]; then
-        usermod -aG "$groups" "$username"
+    if [ -z "$groups" ]; then
+        useradd -m -s /bin/bash "$username" 2>/dev/null || true
+    else
+        useradd -m -s /bin/bash -G "$groups" "$username" 2>/dev/null || true
     fi
     
-    # Set password
-    echo "$username:$password" | chpasswd
+    # Set password using chpasswd
+    echo "$username:$password" | chpasswd 2>/dev/null
     
-    # Unlock account
-    usermod -U "$username"
+    # Unlock user if locked
+    usermod -U "$username" 2>/dev/null || true
+    
+    # Ensure password doesn't expire
+    chage -M 99999 -W 99999 "$username" 2>/dev/null || true
+    
+    # Verify user was created
+    if id "$username" >/dev/null 2>&1; then
+        echo "[+] User $username created successfully"
+    else
+        echo "[!] WARNING: Failed to create user $username"
+    fi
 }
 
 # Create user groups
@@ -339,21 +344,6 @@ echo "admin:admin123" | htpasswd -ci /etc/nginx/.htpasswd admin 2>/dev/null
 # ===== SSH Configuration Fix =====
 echo "[*] Configuring SSH service..."
 
-# Pastikan SSH mengizinkan password login
-sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-# Izinkan root login (opsional untuk lab)
-sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-# Pastikan PAM mengizinkan password
-sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' /etc/pam.d/sshd
-
-# Pastikan settingan ini ada di sshd_config
-echo "PermitEmptyPasswords no" >> /etc/ssh/sshd_config
-echo "UsePAM yes" >> /etc/ssh/sshd_config
-# Fix SSH permissions & directory
-mkdir -p /run/sshd
-chmod 755 /run/sshd
-
 # Verify /bin/bash exists
 if [ ! -x /bin/bash ]; then
     echo "[!] WARNING: /bin/bash not executable! Attempting to fix..."
@@ -361,6 +351,9 @@ if [ ! -x /bin/bash ]; then
 fi
 
 # Fix SSH permissions
+chmod 700 /var/run/sshd
+mkdir -p /run/sshd
+
 # Generate SSH keys if they don't exist
 if [ ! -f /etc/ssh/ssh_host_rsa_key ]; then
     echo "[*] Generating RSA host key..."
